@@ -3,6 +3,7 @@ from django.shortcuts import render, get_object_or_404
 from django.template import RequestContext
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.forms import Form, HiddenInput
 from django.utils.translation import ugettext as _
 from django.utils import timezone
 try:
@@ -61,7 +62,7 @@ def trash(request, template_name='django_messages/trash.html'):
     })
 
 @login_required
-def compose(request, recipient=None, form_class=ComposeForm,
+def compose(request, subject, recipient=None, form_class=ComposeForm,
         template_name='django_messages/compose.html', success_url=None,
         recipient_filter=None):
     """
@@ -93,13 +94,57 @@ def compose(request, recipient=None, form_class=ComposeForm,
                 success_url = request.GET['next']
             return HttpResponseRedirect(success_url)
     else:
-        form = form_class(initial={"subject": request.GET.get("subject", "")})
+        form = form_class(initial={"subject": request.GET.get("subject", "Order#" + subject)})
         if recipient is not None:
             recipients = [u for u in User.objects.filter(**{'%s__in' % get_username_field(): [r.strip() for r in recipient.split('+')]})]
+            form.fields['recipient'].widget = HiddenInput()
             form.fields['recipient'].initial = recipients
     return render(request, template_name, {
         'form': form,
     })
+
+login_required
+def whisper(request, subject, recipient=None, form_class=ComposeForm,
+        template_name='django_messages/compose.html', success_url=None,
+        recipient_filter=None):
+    """
+    Displays and handles the ``form_class`` form to compose new messages.
+    Required Arguments: None
+    Optional Arguments:
+        ``recipient``: username of a `django.contrib.auth` User, who should
+                       receive the message, optionally multiple usernames
+                       could be separated by a '+'
+        ``form_class``: the form-class to use
+        ``template_name``: the template to use
+        ``success_url``: where to redirect after successfull submission
+        ``recipient_filter``: a function which receives a user object and
+                              returns a boolean wether it is an allowed
+                              recipient or not
+
+    Passing GET parameter ``subject`` to the view allows pre-filling the
+    subject field of the form.
+    """
+    if request.method == "POST":
+        sender = request.user
+        form = form_class(request.POST, recipient_filter=recipient_filter)
+        if form.is_valid():
+            form.save(sender=request.user)
+            messages.info(request, _(u"Message successfully sent."))
+            if success_url is None:
+                success_url = reverse('messages_inbox')
+            if 'next' in request.GET:
+                success_url = request.GET['next']
+            return HttpResponseRedirect(success_url)
+    else:
+        form = form_class(initial={"subject": request.GET.get("subject", "Storage#" + subject)})
+        if recipient is not None:
+            recipients = [u for u in User.objects.filter(**{'%s__in' % get_username_field(): [r.strip() for r in recipient.split('+')]})]
+            form.fields['recipient'].widget = HiddenInput()
+            form.fields['recipient'].initial = recipients
+    return render(request, template_name, {
+        'form': form,
+    })
+
 
 @login_required
 def reply(request, message_id, form_class=ComposeForm,
@@ -129,10 +174,11 @@ def reply(request, message_id, form_class=ComposeForm,
             return HttpResponseRedirect(success_url)
     else:
         form = form_class(initial={
-            'body': quote_helper(parent.sender, parent.body),
+            'body': quote_helper(parent.sender.first_name, parent.body),
             'subject': subject_template % {'subject': parent.subject},
             'recipient': [parent.sender,]
             })
+        form.fields['recipient'].widget = HiddenInput()
     return render(request, template_name, {
         'form': form,
     })
@@ -225,9 +271,9 @@ def view(request, message_id, form_class=ComposeForm, quote_helper=format_quote,
     context = {'message': message, 'reply_form': None}
     if message.recipient == user:
         form = form_class(initial={
-            'body': quote_helper(message.sender, message.body),
+            'body': quote_helper(message.sender.first_name, message.body),
             'subject': subject_template % {'subject': message.subject},
-            'recipient': [message.sender,]
+            'recipient': [message.sender.first_name,]
             })
         context['reply_form'] = form
     return render(request, template_name, context)
