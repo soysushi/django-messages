@@ -103,7 +103,7 @@ def compose(request, subject, recipient=None, form_class=ComposeForm,
         'form': form,
     })
 
-login_required
+@login_required
 def whisper(request, subject, recipient=None, form_class=ComposeForm,
         template_name='django_messages/compose.html', success_url=None,
         recipient_filter=None):
